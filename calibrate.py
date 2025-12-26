@@ -1,5 +1,6 @@
 import cv2, sys, os
 import glob
+import numpy as np
 
 def main():
     path = "/home/jhsrobo/stereovision/img/calibration"
@@ -112,7 +113,7 @@ def calibrate_on_photos(path):
     right_points = []
 
     # Get size of images 
-    img = left_imgs[0]
+    img = cv2.imread(left_imgs[0], cv2.IMREAD_GRAYSCALE)
     img_size = (img.shape[1], img.shape[0])
 
     for lpath, rpath in zip(left_imgs, right_imgs):
@@ -132,29 +133,29 @@ def calibrate_on_photos(path):
         right_points.append(right_corners)
 
 
-        # Makes an array of points found and estimates the x and y coordinates (assumes z-coordinate of 0)
+    # Makes an array of points found and estimates the x and y coordinates (assumes z-coordinate of 0)
 
-        # Note: Due to the assumption of a 0 z-coordinate, the chessboard must be placed on a flat plane.
-        # I reccomend just downloading a chessboard, printing it, and putting it flat on a table.
-        common_points = np.zeros((np.prod(board_dim), 3), np.float32)
-        common_points[:, :2] = np.indices(board_dim).T.reshape(-1, 2)
-        common_points = [common_points] * len(left_imgs)
+    # Note: Due to the assumption of a 0 z-coordinate, the chessboard must be placed on a flat plane.
+    # I reccomend just downloading a chessboard, printing it, and putting it flat on a table.
+    common_points = np.zeros((np.prod(board_dim), 3), np.float32)
+    common_points[:, :2] = np.indices(board_dim).T.reshape(-1, 2)
+    common_points = [common_points] * len(left_imgs)
 
-        # Calibrate the camera modules based on the estimated position of the points
-        error, Kl, Dl, Kr, Dr, R, T, E, F = cv2.stereoCalibrate(common_points, left_pts, right_pts, None, None, None, None, img_size, flags=0)
+    # Calibrate the camera modules based on the estimated position of the points
+    error, Kl, Dl, Kr, Dr, R, T, E, F = cv2.stereoCalibrate(common_points, left_points, right_points, None, None, None, None, img_size, flags=0)
 
-        print('Left camera:')
-        print(Kl)
-        print('Left camera distortion:')
-        print(Dl)
-        print('Right camera:')
-        print(Kr)
-        print('Right camera distortion:')
-        print(Dr)
-        print('Rotation matrix:')
-        print(R)
-        print('Translation:')
-        print(T)
+    print('Left camera:')
+    print(Kl)
+    print('Left camera distortion:')
+    print(Dl)
+    print('Right camera:')
+    print(Kr)
+    print('Right camera distortion:')
+    print(Dr)
+    print('Rotation matrix:')
+    print(R)
+    print('Translation:')
+    print(T)
              
 
 if __name__ == "__main__":
