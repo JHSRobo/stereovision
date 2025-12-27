@@ -8,7 +8,7 @@ def main():
     # To add a flag, just add the flag and its description to the following dictionary 
     # To make the flag actually do something, you'll also need to add a conditional to
     # the end of main.
-    flags = {"-g": "get_photos", "-c": "calibirate", "-gc": "get_photos and calibrate"}
+    flags = {"-g": "get_photos", "-c": "calibrate", "-gc": "get_photos and calibrate"}
 
     # Some iteration to print out all the flags in the instructions
     instructions = "1. Please enter a flag:"
@@ -17,7 +17,7 @@ def main():
     instructions += "\n2. (Optional) Enter a port to receive the camera stream (defaults to 1111)"
 
     cur_flag = None
-    port = "5000"
+    port = "1111"
 
     length = len(sys.argv)
     if length < 2:
@@ -62,8 +62,10 @@ def get_photos(path, port):
     i = 1
     key = None
 
+    listening = False
+
     while True:
-        if key == 32: # Space bar
+        if listening: # Space bar
             vid_capture = cv2.VideoCapture(f"http://192.168.88.111:{port}/snapshot")
             ret, frame = vid_capture.read() 
             if not ret or frame is None:
@@ -86,21 +88,23 @@ def get_photos(path, port):
             vid_capture.release()
 
             i += 1
-        elif key == 13 or key == 10: # Enter/return 
-            return
-
 
         # Least readable code ever lol
         # Bascially waitKey returns a ton of bytes with the last byte being
         # a relevant keystroke. By using a bitwise-and operator here, we're 
         # just copying the last byte (the keystroke) and ignoring the rest.
         key = cv2.waitKey(1) & 0xff
+        if key == 32:
+            listening = not listening
+        elif key == 13 or key == 10: # Enter/return 
+            cv2.destroyAllWindows()
+            return
 
 # Find more info on the calibration process and functions at the following link 
 # https://docs.opencv.org/4.x/dc/dbb/tutorial_py_calibration.html
 def calibrate_on_photos(path):
     # Inside corners of chessboard in rows by cols format
-    board_dim = (7, 9) 
+    board_dim = (7, 9)
 
     # Get existing left and right images 
     left_imgs = list(sorted(glob.glob(f"{path}/L/*.png")))
@@ -112,9 +116,11 @@ def calibrate_on_photos(path):
     left_points = []
     right_points = []
 
+    print("Finding Image Points")
     # Get size of images 
     img = cv2.imread(left_imgs[0], cv2.IMREAD_GRAYSCALE)
     img_size = (img.shape[1], img.shape[0])
+    print(img_size)
 
     for lpath, rpath in zip(left_imgs, right_imgs):
         left_img = cv2.imread(lpath, cv2.IMREAD_GRAYSCALE)
@@ -133,14 +139,15 @@ def calibrate_on_photos(path):
         right_points.append(right_corners)
 
 
+    print("Determining common points' locations")
     # Makes an array of points found and estimates the x and y coordinates (assumes z-coordinate of 0)
-
     # Note: Due to the assumption of a 0 z-coordinate, the chessboard must be placed on a flat plane.
     # I reccomend just downloading a chessboard, printing it, and putting it flat on a table.
     common_points = np.zeros((np.prod(board_dim), 3), np.float32)
     common_points[:, :2] = np.indices(board_dim).T.reshape(-1, 2)
-    common_points = [common_points] * len(left_imgs)
+    common_points = [common_points] * len(left_points)
 
+    print("Calibrating on point locatins")
     # Calibrate the camera modules based on the estimated position of the points
     error, Kl, Dl, Kr, Dr, R, T, E, F = cv2.stereoCalibrate(common_points, left_points, right_points, None, None, None, None, img_size, flags=0)
 
