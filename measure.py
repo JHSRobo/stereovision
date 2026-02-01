@@ -4,11 +4,15 @@ import cv2
 import depthai as dai
 
 with dai.Pipeline() as pipeline:
+    res = (1280, 800)
+    img_type = dai.ImgFrame.Type.NV12
+    fps = 60
+
     left_cam = pipeline.create(dai.node.Camera).build(dai.CameraBoardSocket.CAM_B)
-    left_out = left_cam.requestOutput((800, 600), dai.ImgFrame.Type.NV12, dai.ImgResizeMode.CROP, 20).createOutputQueue()
+    left_out = left_cam.requestOutput(size=res, type=img_type, fps=fps).createOutputQueue()
 
     right_cam = pipeline.create(dai.node.Camera).build(dai.CameraBoardSocket.CAM_C)
-    right_out = right_cam.requestOutput((800, 600), dai.ImgFrame.Type.NV12, dai.ImgResizeMode.CROP, 20).createOutputQueue()
+    right_out = right_cam.requestOutput(size=res, type=img_type, fps=fps).createOutputQueue()
 
     device = pipeline.getDefaultDevice()
     pipeline.start()
