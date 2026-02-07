@@ -11,3 +11,5 @@ with dai.Device() as device:
         print("\tSupported types:", feature.supportedTypes)
         print("\tHas autofocus:", bool(feature.hasAutofocus))
         print()
+
+    print(device.getPlatform())
