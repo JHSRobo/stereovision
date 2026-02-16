@@ -1,0 +1,14 @@
+pts = pcl_msg.getPoints() 
+
+pts_rgb, rgba = pcl_msg.getPointsRGB()
+
+pcd = o3d.geometry.PointCloud()
+pcd.points = o3d.utility.Vector3dVector(pts_rgb.astype(np.float64))
+
+colors = rgba[:, :3].astype(np.float64) / 255.0
+pcd.colors = o3d.utility.Vector3dVector(colors)
+
+fname = os.path.join("rgbd_pcl", f"frame_{frame_idx:04d}.ply")
+o3d.io.write_point_cloud(fname, pcd)
+print("Saved", fname)
+frame_idx += 1
