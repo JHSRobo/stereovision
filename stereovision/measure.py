@@ -30,6 +30,7 @@ class MeasureNode(Node):
         cv2.setMouseCallback(self.window_name, self.click_callback)
 
         # Intrinsics of the Depth Camera (not the rgb or mono cameras)
+        self.depth = None
         self.fx = None
         self.fy = None
         self.cx = None
