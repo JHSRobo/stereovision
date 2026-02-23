@@ -36,7 +36,7 @@ class MeasureNode(Node):
         self.cx = None
         self.cy = None
 
-        # Init and connections for partss of the camera to create a depth stream
+        # Init and connections for parts of the camera to create a depth stream
         self.pipeline = dai.Pipeline()
         self.rgb = self.pipeline.create(dai.node.Camera).build(dai.CameraBoardSocket.CAM_A)
         self.mono_left = self.pipeline.create(dai.node.Camera).build(dai.CameraBoardSocket.CAM_B)
@@ -61,6 +61,8 @@ class MeasureNode(Node):
 
         self.rgbd_queue = self.rgbd.rgbd.createOutputQueue(maxSize=8, blocking=False)
 
+        self.log.info("check2")
+
         self.pipeline.start()
 
         self.create_timer(1/30, self.receive_frame)
@@ -72,7 +74,7 @@ class MeasureNode(Node):
 
             self.depth = frame.getDepthFrame().getCvFrame() #type:ignore
 
-            intrinsics = self.depth.getTransformation().getSourceIntrinsicMatrix()
+            intrinsics = frame.getDepthFrame().getTransformation().getSourceIntrinsicMatrix()
             self.fx = intrinsics[0][0]
             self.fy = intrinsics[1][1]
             self.cx = intrinsics[0][2]
@@ -83,12 +85,14 @@ class MeasureNode(Node):
             colorized_depth = cv2.applyColorMap(normalized_depth, cv2.COLORMAP_JET)
 
             cv2.imshow(self.window_name, colorized_depth)
+        cv2.waitKey(1)
 
     def click_callback(self, event, x, y, flags, param):
         # Make sure the click callback onlhy runs after a depth frame is received
         if self.depth is None: return 
 
         if event == cv2.EVENT_LBUTTONDOWN:
+            self.log.info("click")
             if not self.freeze:
                 self.freeze = True
                 self.log.info("Freeze")
@@ -115,13 +119,11 @@ class MeasureNode(Node):
     def get_world_point(self, u, v, z, fx, fy, cx, cy):
         x = (u - cx) * z / fx
         y = (v - cy) * z / fy 
-
         return (x, y, z)
 
     def get_distance(self, point_a, point_b):
         x1, y1, z1 = point_a
         x2, y2, z2 = point_b
-
         return math.sqrt((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2)
 
 def main(args=None):
@@ -131,6 +133,7 @@ def main(args=None):
 
     try: rclpy.spin(measure_node)
     except Exception: 
+        self.log.info("Shutting down")
         measure_node.pipeline.stop() # release camera upon program ending
         cv2.destroyAllWindows()
 
