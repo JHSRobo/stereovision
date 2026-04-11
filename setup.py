@@ -24,7 +24,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'measure=stereovision.measure:main'
+            'measure=stereovision.measure:main',
+            'rgbd_publisher=stereovision.rgbd_publisher:main'
         ],
     },
 )
