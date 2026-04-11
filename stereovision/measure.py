@@ -54,7 +54,8 @@ class MeasureNode(Node):
         self.rgb = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
 
     def depth_callback(self, msg):
-        self.depth = self.bridge.imgmsg_to_cv2(msg, desired_encoding="16UC1")
+        if not self.freeze:
+            self.depth = self.bridge.imgmsg_to_cv2(msg, desired_encoding="16UC1")
 
     def info_callback(self, msg):
         self.fx = msg.k[0]
@@ -95,10 +96,10 @@ class MeasureNode(Node):
                 self.points.clear()
                 self.freeze= False
 
-    # (x-coord, y-coord, x focal-length, y focal-length, principal pnt x-coord, principal pnt y-coord)
-    def get_world_point(self, u, v, z, fx, fy, cx, cy):
-        x = (u - cx) * z / fx
-        y = (v - cy) * z / fy 
+    # (pixel x-coord, pixel y-coord, depth)
+    def get_world_point(self, u, v, z):
+        x = (u - self.cx) * z / self.fx
+        y = (v - self.cy) * z / self.fy 
         return (x, y, z)
 
     def get_distance(self, point_a, point_b):
@@ -118,3 +119,4 @@ def main(args=None):
 
 if __name__ == "__main__":
     main()
+

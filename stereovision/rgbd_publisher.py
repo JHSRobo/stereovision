@@ -27,7 +27,7 @@ class RGBDPublisher(Node):
         self.mono_right = self.pipeline.create(dai.node.Camera).build(dai.CameraBoardSocket.CAM_C)
         self.stereo = self.pipeline.create(dai.node.StereoDepth)
 
-        self.rgb_out = self.rgb.requestOutput(size=(1280, 800), type=dai.ImgFrame.Type.RGB888i)
+        self.rgb_out = self.rgb.requestOutput(size=(1280, 800), type=dai.ImgFrame.Type.RGB888i, enableUndistortion=True)
         self.mono_left_out = self.mono_left.requestFullResolutionOutput()
         self.mono_right_out = self.mono_right.requestFullResolutionOutput()
 
@@ -56,9 +56,9 @@ class RGBDPublisher(Node):
             return 
 
         depth = frame.getDepthFrame().getCvFrame()
-        color = frame.getCvFrame()
+        #color = frame.getCvFrame()
 
-        rgb_msg = self.bridge.cv2_to_imgmsg(color, encoding="bgr8")
+        #rgb_msg = self.bridge.cv2_to_imgmsg(color, encoding="bgr8")
         depth_msg = self.bridge.cv2_to_imgmsg(depth, encoding="16UC1")
 
         intrinsics = frame.getDepthFrame().getTransformation().getSourceIntrinsicMatrix()
@@ -70,7 +70,7 @@ class RGBDPublisher(Node):
             0.0, 0.0, 1.0
         ]
 
-        self.rgb_pub.publish(rgb_msg)
+        #self.rgb_pub.publish(rgb_msg)
         self.depth_pub.publish(depth_msg)
         self.info_pub.publish(info_msg)
 
@@ -80,7 +80,8 @@ def main(args=None):
     node = RGBDPublisher()
 
     try: rclpy.spin(node)
-    except Exception: 
+    except Exception as e: 
+        node.log.info(str(e))
         node.log.info("Shutting down")
         node.pipeline.stop() # release camera upon program ending
 
