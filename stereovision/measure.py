@@ -6,6 +6,7 @@ import numpy as np
 import math
 
 from sensor_msgs.msg import Image, CameraInfo
+from core.msg import RGBDImage
 from cv_bridge import CvBridge
 
 class MeasureNode(Node):
@@ -26,36 +27,33 @@ class MeasureNode(Node):
         self.freeze = False
         self.points = []
 
-        self.create_subscription(Image, '/rgb/image_raw',self.rgb_callback, 10)
-        self.create_subscription(Image, '/depth/image_raw',self.depth_callback, 10)
-        self.create_subscription(CameraInfo, '/camera_info',self.info_callback, 10)
+        self.create_subscription(RGBDImage, '/camera/image_raw',self.rgbd_callback, 10)
+        self.create_subscription(CameraInfo, '/camera/camera_info',self.info_callback, 10)
 
-        self.window_name = "depth"
-        cv2.namedWindow(self.window_name)
-        cv2.setMouseCallback(self.window_name, self.click_callback)
+        self.rgb_window_name = "rgb"
+        cv2.namedWindow(self.rgb_window_name)
+
+        self.depth_window_name = "depth"
+        cv2.namedWindow(self.depth_window_name)
+        cv2.setMouseCallback(self.depth_window_name, self.click_callback)
 
         # Creating a color map to display close depths as red and far depths as blue
         self.color_map = cv2.applyColorMap(np.arange(256, dtype=np.uint8), cv2.COLORMAP_JET)
         self.color_map[0] = [0, 0, 0]  # to make zero-depth pixels black
 
-        # For the colorized depth stream, limit the color-range based on these depths.
         self.MIN_DEPTH = 300 
         self.MAX_DEPTH = 3000
 
-        self.window_name = "depth"
-
-        cv2.namedWindow(self.window_name, cv2.WND_PROP_FULLSCREEN)
-        cv2.setWindowProperty(self.window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
-        cv2.setMouseCallback(self.window_name, self.click_callback)
+        cv2.namedWindow(self.depth_window_name, cv2.WND_PROP_FULLSCREEN)
+        cv2.setWindowProperty(self.depth_window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
+        cv2.setMouseCallback(self.depth_window_name, self.click_callback)
 
         self.create_timer(1/30, self.display)
 
-    def rgb_callback(self, msg):
-        self.rgb = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
-
-    def depth_callback(self, msg):
+    def rgbd_callback(self, msg):
+        self.rgb = self.bridge.imgmsg_to_cv2(msg.rgb, desired_encoding="bgr8")
         if not self.freeze:
-            self.depth = self.bridge.imgmsg_to_cv2(msg, desired_encoding="16UC1")
+            self.depth = self.bridge.imgmsg_to_cv2(msg.depth, desired_encoding="16UC1")
 
     def info_callback(self, msg):
         self.fx = msg.k[0]
@@ -64,15 +62,17 @@ class MeasureNode(Node):
         self.cy = msg.k[5]
 
     def display(self):
-        if self.depth is None:
-            return
+        if not self.depth is None:
+            clipped_depth = np.clip(self.depth, self.MIN_DEPTH, self.MAX_DEPTH)
+            normalized_depth = ((clipped_depth - self.MIN_DEPTH) / (self.MAX_DEPTH - self.MIN_DEPTH) * 255).astype(np.uint8)
+            colorized_depth = cv2.applyColorMap(normalized_depth, cv2.COLORMAP_JET)
 
-        clipped_depth = np.clip(self.depth, self.MIN_DEPTH, self.MAX_DEPTH)
-        normalized_depth = ((clipped_depth - self.MIN_DEPTH) / (self.MAX_DEPTH - self.MIN_DEPTH) * 255).astype(np.uint8)
-        colorized_depth = cv2.applyColorMap(normalized_depth, cv2.COLORMAP_JET)
+            cv2.imshow(self.depth_window_name, colorized_depth)
+            cv2.waitKey(1)
 
-        cv2.imshow(self.window_name, colorized_depth)
-        cv2.waitKey(1)
+        if not self.rgb is None:
+            cv2.imshow(self.rgb_window_name, self.rgb)
+            cv2.waitKey(1)
 
     def click_callback(self, event, x, y, flags, param):
         if self.depth is None or self.fx is None:

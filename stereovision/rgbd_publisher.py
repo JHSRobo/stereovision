@@ -2,11 +2,12 @@ import rclpy
 from rclpy.node import Node 
 
 import cv2 
+from cv_bridge import CvBridge
 import depthai as dai 
 import numpy as np 
 
 from sensor_msgs.msg import Image, CameraInfo
-from cv_bridge import CvBridge
+from core.msg import RGBDImage
 
 class RGBDPublisher(Node):
     def __init__(self):
@@ -16,9 +17,8 @@ class RGBDPublisher(Node):
 
         self.bridge = CvBridge()
 
-        self.rgb_pub = self.create_publisher(Image, '/rgb/image_raw', 10)
-        self.depth_pub = self.create_publisher(Image, '/depth/image_raw', 10)
-        self.info_pub = self.create_publisher(CameraInfo, '/camera_info', 10)
+        self.rgbd_pub = self.create_publisher(RGBDImage, '/camera/image_raw', 10)
+        self.info_pub = self.create_publisher(CameraInfo, '/camera/camera_info', 10)
 
         # Init and connections for parts of the camera to create a depth stream
         self.pipeline = dai.Pipeline()
@@ -56,10 +56,14 @@ class RGBDPublisher(Node):
             return 
 
         depth = frame.getDepthFrame().getCvFrame()
-        #color = frame.getCvFrame()
+        color = frame.getRGBFrame().getCvFrame()
 
-        #rgb_msg = self.bridge.cv2_to_imgmsg(color, encoding="bgr8")
+        rgb_msg = self.bridge.cv2_to_imgmsg(color, encoding="bgr8")
         depth_msg = self.bridge.cv2_to_imgmsg(depth, encoding="16UC1")
+
+        rgbd_msg = RGBDImage()
+        rgbd_msg.rgb = rgb_msg
+        rgbd_msg.depth = depth_msg
 
         intrinsics = frame.getDepthFrame().getTransformation().getSourceIntrinsicMatrix()
 
@@ -70,8 +74,7 @@ class RGBDPublisher(Node):
             0.0, 0.0, 1.0
         ]
 
-        #self.rgb_pub.publish(rgb_msg)
-        self.depth_pub.publish(depth_msg)
+        self.rgbd_pub.publish(rgbd_msg)
         self.info_pub.publish(info_msg)
 
 def main(args=None):
