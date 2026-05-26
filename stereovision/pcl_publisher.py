@@ -1,0 +1,130 @@
+import rclpy
+from rclpy.node import Node 
+
+import cv2 
+import numpy as np
+from cv_bridge import CvBridge
+import depthai as dai 
+
+from sensor_msgs.msg import Image, CameraInfo, PointCloud2, PointField
+from std_msgs.msg import Header
+
+class PCLPublisher(Node):
+    def __init__(self):
+        super().__init__('rgbd_publisher')
+
+        self.log = self.get_logger()
+
+        self.bridge = CvBridge()
+
+        self.pcl_pub = self.create_publisher(PointCloud2, '/depth_camera/pcl', 10)
+        self.info_pub = self.create_publisher(CameraInfo, '/depth_camera/camera_info', 10)
+
+        # Init and connections for parts of the camera to create a depth stream
+        self.pipeline = dai.Pipeline()
+        self.rgb = self.pipeline.create(dai.node.Camera).build(dai.CameraBoardSocket.CAM_A)
+        self.mono_left = self.pipeline.create(dai.node.Camera).build(dai.CameraBoardSocket.CAM_B)
+        self.mono_right = self.pipeline.create(dai.node.Camera).build(dai.CameraBoardSocket.CAM_C)
+        self.stereo = self.pipeline.create(dai.node.StereoDepth)
+
+        self.rgb_out = self.rgb.requestOutput(size=(1280, 800), type=dai.ImgFrame.Type.RGB888i, enableUndistortion=True)
+        self.mono_left_out = self.mono_left.requestFullResolutionOutput()
+        self.mono_right_out = self.mono_right.requestFullResolutionOutput()
+
+        self.rgb_out.link(self.stereo.inputAlignTo)
+        self.mono_left_out.link(self.stereo.left)
+        self.mono_right_out.link(self.stereo.right)
+
+        self.stereo.setRectification(True)
+        self.stereo.setExtendedDisparity(False)
+        self.stereo.setLeftRightCheck(True)
+        self.stereo.setSubpixel(True)
+
+        self.rgbd = self.pipeline.create(dai.node.RGBD).build()
+        self.stereo.depth.link(self.rgbd.inDepth)
+        self.rgb_out.link(self.rgbd.inColor)
+
+        self.rgbd_queue = self.rgbd.rgbd.createOutputQueue(maxSize=8, blocking=False)
+        self.pcl_queue = self.rgbd.pcl.createOutputQueue(maxSize=8, blocking=False)
+
+        self.pipeline.start()
+
+        while True:
+            frame = self.rgbd_queue.tryGet()
+            if frame is not None: 
+                intrinsics = frame.getDepthFrame().getTransformation().getSourceIntrinsicMatrix()
+                self.info_msg = CameraInfo()
+                self.info_msg.k = [
+                    intrinsics[0][0], 0.0, intrinsics[0][2], 
+                    0.0, intrinsics[1][1], intrinsics[1][2], 
+                    0.0, 0.0, 1.0
+                ]
+                break
+
+
+        self.create_timer(1/30, self.publish_cam)
+
+    def publish_cam(self):
+        self.info_pub.publish(self.info_msg)
+        pcl = self.pcl_queue.tryGet()
+
+        if pcl is not None:
+            points, colors = pcl.getPointsRGB()
+            msg = self.create_pcl_msg(points, colors)
+            self.pcl_pub.publish(msg)
+
+    def create_pcl_msg(self, points, colors):
+        length = len(points)
+        # Placing the rgb values into a single byte
+        r = colors[:, 0].astype(np.uint32)
+        g = colors[:, 1].astype(np.uint32)
+        b = colors[:, 2].astype(np.uint32)
+        rgb_packed = (r << 16) | (g << 8) | b
+        # Converting rgb value to a float to fit ros convention
+        rgb_float = rgb_packed.view(np.float32)
+
+        cloud = np.zeros(length, dtype=[
+                ('x', np.float32),
+                ('y', np.float32),
+                ('z', np.float32),
+                ('rgb', np.float32)
+            ])
+
+        cloud['x'] = points[:, 0]
+        cloud['y'] = points[:, 1]
+        cloud['z'] = points[:, 2]
+        cloud['rgb'] = rgb_float
+
+        msg = PointCloud2()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.height = 1
+        msg.width = length
+        msg.fields = [
+            PointField(name='x', offset = 0, datatype=PointField.FLOAT32, count=1),
+            PointField(name='y', offset = 4, datatype=PointField.FLOAT32, count=1),
+            PointField(name='z', offset = 8, datatype=PointField.FLOAT32, count=1),
+            PointField(name='rgb', offset = 12, datatype=PointField.FLOAT32, count=1),
+        ]
+        msg.is_bigendian = False
+        msg.point_step = 16
+        msg.row_step = 16 * length
+        msg.data = cloud.tobytes()
+        msg.is_dense = True
+        return msg
+
+def main(args=None):
+    rclpy.init(args=args)
+
+    node = PCLPublisher()
+
+    try: rclpy.spin(node)
+    except Exception as e: 
+        node.log.info(str(e))
+        node.log.info("Shutting down")
+        node.pipeline.stop() # release camera upon program ending
+
+    node.destroy_node()
+    rclpy.shutdown()
+
+if __name__ == "__main__":
+    main()
