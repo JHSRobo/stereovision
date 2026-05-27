@@ -17,7 +17,7 @@ class PCLPublisher(Node):
 
         self.bridge = CvBridge()
 
-        self.pcl_pub = self.create_publisher(PointCloud2, '/depth_camera/pcl', 10)
+        self.pcl_pub = self.create_publisher(PointCloud2, '/depth_camera/point_cloud', 10)
         self.info_pub = self.create_publisher(CameraInfo, '/depth_camera/camera_info', 10)
 
         # Init and connections for parts of the camera to create a depth stream
@@ -61,8 +61,7 @@ class PCLPublisher(Node):
                 ]
                 break
 
-
-        self.create_timer(1/30, self.publish_cam)
+        self.create_timer(1/32, self.publish_cam)
 
     def publish_cam(self):
         self.info_pub.publish(self.info_msg)
@@ -74,11 +73,17 @@ class PCLPublisher(Node):
             self.pcl_pub.publish(msg)
 
     def create_pcl_msg(self, points, colors):
+        # Filter out invalid points
+        valid = np.isfinite(points).all(axis=1)
+        points = points[valid]
+        colors = colors[valid]
+
         length = len(points)
         # Placing the rgb values into a single byte
         r = colors[:, 0].astype(np.uint32)
         g = colors[:, 1].astype(np.uint32)
         b = colors[:, 2].astype(np.uint32)
+
         rgb_packed = (r << 16) | (g << 8) | b
         # Converting rgb value to a float to fit ros convention
         rgb_float = rgb_packed.view(np.float32)
@@ -90,13 +95,17 @@ class PCLPublisher(Node):
                 ('rgb', np.float32)
             ])
 
-        cloud['x'] = points[:, 0]
-        cloud['y'] = points[:, 1]
-        cloud['z'] = points[:, 2]
+        # Remap axes from DepthAI convention to ROS convention
+        cloud['x'] = points[:, 2] / 1000.0# Z -> X
+        cloud['y'] = -points[:, 0] / 1000.0 # X -> -Y
+        cloud['z'] = -points[:, 1] / 1000.0 #Y -> -Z
         cloud['rgb'] = rgb_float
 
         msg = PointCloud2()
+
         msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = "map"
+
         msg.height = 1
         msg.width = length
         msg.fields = [
