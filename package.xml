@@ -13,6 +13,7 @@
   <test_depend>python3-pytest</test_depend>
 
   <depend>python3-opencv</depend>
+  <depend>python3-open3d-pip</depend>
   <depend>depthai</depend>
   <depend>python3-numpy</depend>
 

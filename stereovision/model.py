@@ -1,62 +1,54 @@
 import rclpy
 from rclpy.node import Node 
-from sensor_msgs.msg import Image, CameraInfo, PointCloud2
+from rcl_interfaces.msg import SetParametersResult
+from sensor_msgs.msg import PointCloud2
 import open3d as o3d
-from sensor_msgs_py import point_cloud2 as pc2
-
+from open3d_ros2_helper import open3d_ros2_helper as orh
 import numpy as np
-import struct
+import os
 import time
+from datetime import datetime
 
 class ModelNode(Node):
     def __init__(self):
-        super().__init__('measure')
+        super().__init__('model')
 
         self.log = self.get_logger()
 
+        subdirectory = datetime.now().strftime("%Y-%m-%d-%H:%M:%S")
+        self.path = f"/home/jhsrobo/corews/src/stereovision/models/{subdirectory}"
+        self.num = 0
+
+        os.makedirs(self.path)
+
+        self.pcl = None
+
+        self.declare_parameter('Save Point Cloud Button', False)
+        self.add_on_set_parameters_callback(self.button_pressed)
+
         self.create_subscription(PointCloud2, '/depth_camera/point_cloud', self.pcl_callback, 10)
 
+    def button_pressed(self, params):
+        if self.pcl != None:
+            self.log.info(f"Saving PCL to {self.path}/{self.num}.ply")
+            self.write_pcl(self.pcl)
+
+        return SetParametersResult(successful=True)
+
     def pcl_callback(self, msg):
-        points = pc2.read_points_list(msg, field_names=["x", "y", "z", "rgb"], skip_nans=True)
+        # Convert ROS pointcloud to Open3D format.
+        o3d_cloud = orh.rospc_to_o3dpc(msg)
 
-        xyz = np.array([[p.x, p.y, p.z] for p in points], dtype=np.float64)
-        xyz /= 100.0
-        xyz[:, 0] -= xyz[:, 0].min()  # shift X to start at 0
-        # Unpack RGB from packed float
-        colors = []
-        for p in points:
-            rgb_int = struct.unpack('I', struct.pack('f', p.rgb))[0]
-            r = ((rgb_int >> 16) & 0xFF) / 255.0
-            g = ((rgb_int >> 8)  & 0xFF) / 255.0
-            b = ( rgb_int        & 0xFF) / 255.0
-            colors.append([r, g, b])
-        colors = np.array(colors, dtype=np.float64)
+        # Scale ros point cloud units (m) to o3d point cloud units (mm).
+        pts = np.asarray(o3d_cloud.points)
+        pts *= 1000.0 
+        o3d_cloud.points = o3d.utility.Vector3dVector(pts)
 
-        o3d_cloud = o3d.geometry.PointCloud()
-        o3d_cloud.points = o3d.utility.Vector3dVector(xyz)
-        o3d_cloud.colors = o3d.utility.Vector3dVector(colors)
+        self.pcl = o3d_cloud
 
-        o3d_cloud.translate(-o3d_cloud.get_center())
-
-        self.log.info(f"xyz range: x={xyz[:,0].min():.2f}-{xyz[:,0].max():.2f}, "
-              f"y={xyz[:,1].min():.2f}-{xyz[:,1].max():.2f}, "
-              f"z={xyz[:,2].min():.2f}-{xyz[:,2].max():.2f}")
-
-        o3d.io.write_point_cloud("output.ply", o3d_cloud)
-
-        self.log.info("Done")
-        exit()
-
-    # # (pixel x-coord, pixel y-coord, depth)
-    # def get_world_point(self, u, v, z):
-    #     x = (u - self.cx) * z / self.fx
-    #     y = (v - self.cy) * z / self.fy 
-    #     return (x, y, z)
-    #
-    # def get_distance(self, point_a, point_b):
-    #     x1, y1, z1 = point_a
-    #     x2, y2, z2 = point_b
-    #     return math.sqrt((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2)
+    def write_pcl(self, o3d_cloud):
+        o3d.io.write_point_cloud(f"{self.path}/{self.num}.ply", o3d_cloud)
+        self.num += 1
 
 def main(args=None):
     rclpy.init(args=args)

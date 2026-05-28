@@ -74,7 +74,12 @@ class PCLPublisher(Node):
 
     def create_pcl_msg(self, points, colors):
         # Filter out invalid points
-        valid = np.isfinite(points).all(axis=1)
+        dist = np.linalg.norm(points, axis=1)
+        valid = (
+            np.isfinite(points).all(axis=1) &
+            (dist > 100) &      # 10 cm
+            (dist < 5000)       # 5 meters
+            )
         points = points[valid]
         colors = colors[valid]
 
@@ -95,7 +100,7 @@ class PCLPublisher(Node):
                 ('rgb', np.float32)
             ])
 
-        # Remap axes from DepthAI convention to ROS convention
+        # Remap axes from depthai convention to ros convention, change units from mm to m
         cloud['x'] = points[:, 2] / 1000.0# Z -> X
         cloud['y'] = -points[:, 0] / 1000.0 # X -> -Y
         cloud['z'] = -points[:, 1] / 1000.0 #Y -> -Z
