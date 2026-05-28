@@ -1,27 +1,27 @@
 import rclpy
 from rclpy.node import Node 
-
 import cv2 
 import numpy as np
 from cv_bridge import CvBridge
 import depthai as dai 
-
+from geometry_msgs.msg import Vector3, Quaternion
 from sensor_msgs.msg import Image, CameraInfo, PointCloud2, PointField
 from std_msgs.msg import Header
 
-class PCLPublisher(Node):
+class StereoPublisher(Node):
     def __init__(self):
-        super().__init__('rgbd_publisher')
+        super().__init__('stereo_publisher')
 
         self.log = self.get_logger()
 
         self.bridge = CvBridge()
 
         self.pcl_pub = self.create_publisher(PointCloud2, '/depth_camera/point_cloud', 10)
-        self.info_pub = self.create_publisher(CameraInfo, '/depth_camera/camera_info', 10)
+        self.orientation_pub = self.create_publisher(Quaternion, '/depth_camera/orientation', 10)
 
         # Init and connections for parts of the camera to create a depth stream
         self.pipeline = dai.Pipeline()
+
         self.rgb = self.pipeline.create(dai.node.Camera).build(dai.CameraBoardSocket.CAM_A)
         self.mono_left = self.pipeline.create(dai.node.Camera).build(dai.CameraBoardSocket.CAM_B)
         self.mono_right = self.pipeline.create(dai.node.Camera).build(dai.CameraBoardSocket.CAM_C)
@@ -47,24 +47,20 @@ class PCLPublisher(Node):
         self.rgbd_queue = self.rgbd.rgbd.createOutputQueue(maxSize=8, blocking=False)
         self.pcl_queue = self.rgbd.pcl.createOutputQueue(maxSize=8, blocking=False)
 
+        # Creating IMU and Accelerometer
+        self.imu = self.pipeline.create(dai.node.IMU)
+        self.imu.enableIMUSensor(dai.IMUSensor.ACCELEROMETER_UNCALIBRATED, 480)
+        self.imu.enableIMUSensor(dai.IMUSensor.ROTATION_VECTOR, 480)
+        self.imu.setBatchReportThreshold(1)
+        self.imu.setMaxBatchReports(10)
+        self.imu_queue = self.imu.out.createOutputQueue(maxSize=50, blocking=False)
+
         self.pipeline.start()
 
-        while True:
-            frame = self.rgbd_queue.tryGet()
-            if frame is not None: 
-                intrinsics = frame.getDepthFrame().getTransformation().getSourceIntrinsicMatrix()
-                self.info_msg = CameraInfo()
-                self.info_msg.k = [
-                    intrinsics[0][0], 0.0, intrinsics[0][2], 
-                    0.0, intrinsics[1][1], intrinsics[1][2], 
-                    0.0, 0.0, 1.0
-                ]
-                break
-
-        self.create_timer(1/32, self.publish_cam)
+        self.create_timer(0.1, self.publish_cam)
+        self.create_timer(0.01, self.publish_imu)
 
     def publish_cam(self):
-        self.info_pub.publish(self.info_msg)
         pcl = self.pcl_queue.tryGet()
 
         if pcl is not None:
@@ -72,13 +68,26 @@ class PCLPublisher(Node):
             msg = self.create_pcl_msg(points, colors)
             self.pcl_pub.publish(msg)
 
+    def publish_imu(self):
+        imu_data = self.imu_queue.tryGet()
+        if imu_data is None:
+            return
+
+        for packet in imu_data.packets:
+            quat = Quaternion()
+            quat.x = packet.rotationVector.i
+            quat.y = packet.rotationVector.j
+            quat.z = packet.rotationVector.k
+            quat.w = packet.rotationVector.real
+            self.orientation_pub.publish(quat)
+
     def create_pcl_msg(self, points, colors):
         # Filter out invalid points
         dist = np.linalg.norm(points, axis=1)
         valid = (
             np.isfinite(points).all(axis=1) &
             (dist > 100) &      # 10 cm
-            (dist < 5000)       # 5 meters
+            (dist < 10000)       # 5 meters
             )
         points = points[valid]
         colors = colors[valid]
@@ -129,7 +138,7 @@ class PCLPublisher(Node):
 def main(args=None):
     rclpy.init(args=args)
 
-    node = PCLPublisher()
+    node = StereoPublisher()
 
     try: rclpy.spin(node)
     except Exception as e: 

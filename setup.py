@@ -25,7 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'model=stereovision.model:main',
-            'pcl_publisher=stereovision.pcl_publisher:main'
+            'stereo_publisher=stereovision.stereo_publisher:main'
         ],
     },
 )
