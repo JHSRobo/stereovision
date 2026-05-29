@@ -4,9 +4,7 @@ import cv2
 import numpy as np
 from cv_bridge import CvBridge
 import depthai as dai 
-from geometry_msgs.msg import Vector3, Quaternion
-from sensor_msgs.msg import Image, CameraInfo, PointCloud2, PointField
-from std_msgs.msg import Header
+from sensor_msgs.msg import Image, PointCloud2, PointField
 
 class StereoPublisher(Node):
     def __init__(self):
@@ -17,7 +15,7 @@ class StereoPublisher(Node):
         self.bridge = CvBridge()
 
         self.pcl_pub = self.create_publisher(PointCloud2, '/depth_camera/point_cloud', 10)
-        self.orientation_pub = self.create_publisher(Quaternion, '/depth_camera/orientation', 10)
+        self.img_pub = self.create_publisher(Image, '/depth_camera/image', 10)
 
         # Init and connections for parts of the camera to create a depth stream
         self.pipeline = dai.Pipeline()
@@ -47,39 +45,29 @@ class StereoPublisher(Node):
         self.rgbd_queue = self.rgbd.rgbd.createOutputQueue(maxSize=8, blocking=False)
         self.pcl_queue = self.rgbd.pcl.createOutputQueue(maxSize=8, blocking=False)
 
-        # Creating IMU and Accelerometer
-        self.imu = self.pipeline.create(dai.node.IMU)
-        self.imu.enableIMUSensor(dai.IMUSensor.ACCELEROMETER_UNCALIBRATED, 480)
-        self.imu.enableIMUSensor(dai.IMUSensor.ROTATION_VECTOR, 480)
-        self.imu.setBatchReportThreshold(1)
-        self.imu.setMaxBatchReports(10)
-        self.imu_queue = self.imu.out.createOutputQueue(maxSize=50, blocking=False)
-
         self.pipeline.start()
 
-        self.create_timer(0.1, self.publish_cam)
-        self.create_timer(0.01, self.publish_imu)
+        self.create_timer(1/32, self.publish_cam)
 
     def publish_cam(self):
         pcl = self.pcl_queue.tryGet()
+        frame = self.rgbd_queue.tryGet()
 
+        # Publish Point Cloud
         if pcl is not None:
             points, colors = pcl.getPointsRGB()
             msg = self.create_pcl_msg(points, colors)
             self.pcl_pub.publish(msg)
 
-    def publish_imu(self):
-        imu_data = self.imu_queue.tryGet()
-        if imu_data is None:
-            return
+        # Publish RGB Frame
+        if frame is not None:
+            color = frame.getRGBFrame().getCvFrame()
+            # depth == frame.getDepthFrame().getCvFrame()
+            rgb_msg = self.bridge.cv2_to_imgmsg(color, encoding="bgr8")
+            # rgb_msg.header.stamp = self.get_clock().now().to_msg()
+            # rgb_msg.header.frame_id = "camera_frame"
+            self.img_pub.publish(rgb_msg)
 
-        for packet in imu_data.packets:
-            quat = Quaternion()
-            quat.x = packet.rotationVector.i
-            quat.y = packet.rotationVector.j
-            quat.z = packet.rotationVector.k
-            quat.w = packet.rotationVector.real
-            self.orientation_pub.publish(quat)
 
     def create_pcl_msg(self, points, colors):
         # Filter out invalid points
