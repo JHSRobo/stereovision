@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 from cv_bridge import CvBridge
 import depthai as dai 
-from sensor_msgs.msg import Image, PointCloud2, PointField
+from sensor_msgs.msg import PointCloud2
 
 class StereoPublisher(Node):
     def __init__(self):
@@ -15,7 +15,6 @@ class StereoPublisher(Node):
         self.bridge = CvBridge()
 
         self.pcl_pub = self.create_publisher(PointCloud2, '/depth_camera/point_cloud', 10)
-        self.img_pub = self.create_publisher(Image, '/depth_camera/image', 10)
 
         # Init and connections for parts of the camera to create a depth stream
         self.pipeline = dai.Pipeline()
@@ -47,27 +46,15 @@ class StereoPublisher(Node):
 
         self.pipeline.start()
 
-        self.create_timer(1/32, self.publish_cam)
+        self.create_timer(0.1, self.publish_cam)
 
     def publish_cam(self):
         pcl = self.pcl_queue.tryGet()
-        frame = self.rgbd_queue.tryGet()
 
-        # Publish Point Cloud
         if pcl is not None:
             points, colors = pcl.getPointsRGB()
             msg = self.create_pcl_msg(points, colors)
             self.pcl_pub.publish(msg)
-
-        # Publish RGB Frame
-        if frame is not None:
-            color = frame.getRGBFrame().getCvFrame()
-            # depth == frame.getDepthFrame().getCvFrame()
-            rgb_msg = self.bridge.cv2_to_imgmsg(color, encoding="bgr8")
-            # rgb_msg.header.stamp = self.get_clock().now().to_msg()
-            # rgb_msg.header.frame_id = "camera_frame"
-            self.img_pub.publish(rgb_msg)
-
 
     def create_pcl_msg(self, points, colors):
         # Filter out invalid points
@@ -75,7 +62,7 @@ class StereoPublisher(Node):
         valid = (
             np.isfinite(points).all(axis=1) &
             (dist > 100) &      # 10 cm
-            (dist < 10000)       # 5 meters
+            (dist < 10000)       # 10 meters
             )
         points = points[valid]
         colors = colors[valid]
